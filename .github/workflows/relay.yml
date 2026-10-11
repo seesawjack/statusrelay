@@ -1,0 +1,81 @@
+name: relay
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: relay
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install .
+
+      - name: Restore state
+        run: |
+          rc=0
+          git ls-remote --exit-code --heads origin refs/heads/state >/dev/null || rc=$?
+          if [ "$rc" -eq 0 ]; then
+            git fetch --depth=1 origin refs/heads/state
+            git show FETCH_HEAD:state.enc > state.enc.tmp && mv state.enc.tmp state.enc || rm -f state.enc.tmp
+          elif [ "$rc" -ne 2 ]; then
+            echo "cannot determine state branch status" >&2
+            exit 1
+          fi
+
+      - name: Run
+        env:
+          STATUSRELAY_CONFIG: ${{ secrets.STATUSRELAY_CONFIG }}
+          STATUSRELAY_STATE_KEY: ${{ secrets.STATUSRELAY_STATE_KEY }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: statusrelay check --state state.enc --require-encryption
+
+      # always(): persist state even when delivery failed.
+      - name: Save state
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          [ -f state.enc ] || exit 0
+          git config --global user.name "relay-bot"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          work="$(mktemp -d)"
+          rc=0
+          git ls-remote --exit-code --heads origin refs/heads/state >/dev/null || rc=$?
+          if [ "$rc" -eq 0 ]; then
+            git fetch --depth=1 origin refs/heads/state
+            git worktree add --detach "$work" FETCH_HEAD
+          elif [ "$rc" -eq 2 ]; then
+            git worktree add --detach "$work"
+            git -C "$work" checkout --orphan state
+            git -C "$work" rm -rf --quiet .
+          else
+            echo "cannot determine state branch status" >&2
+            exit 1
+          fi
+          cp state.enc "$work/state.enc"
+          git -C "$work" add state.enc
+          if git -C "$work" diff --cached --quiet; then
+            echo "state unchanged"
+            exit 0
+          fi
+          git -C "$work" commit -m "update"
+          git -C "$work" push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:state

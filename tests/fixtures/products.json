@@ -1,0 +1,6 @@
+{"products": [
+  {"sessionId": "26ab2893376c2821a1e1efbfdb28c4f4", "ticketAreaId": "a000000101", "name": "一般票", "price": 5880, "hidden": false, "sortedIndex": 1, "productId": "p000001011"},
+  {"sessionId": "26ab2893376c2821a1e1efbfdb28c4f4", "ticketAreaId": "a000000102", "name": "一般票", "price": 5880, "hidden": false, "sortedIndex": 1, "productId": "p000001021"},
+  {"sessionId": "26ab2893376c2821a1e1efbfdb28c4f4", "ticketAreaId": "a000000102", "name": "身障票", "price": 2940, "hidden": false, "sortedIndex": 2, "productId": "p000001022"},
+  {"sessionId": "a0cd115cc2af7ef784fb6ee2414841c5", "ticketAreaId": "a000000201", "name": "一般票", "price": 2880, "hidden": false, "sortedIndex": 1, "productId": "p000002011"}
+]}

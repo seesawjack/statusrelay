@@ -1,0 +1,19 @@
+# Copy to config.yaml (git-ignored) for local use, or store the whole
+# document in the STATUSRELAY_CONFIG secret for CI.
+poll:
+  interval_seconds: 60      # watch mode only; minimum 30
+  reminder_minutes: 10      # 0 disables reminders
+
+notifiers:
+  - type: telegram
+    token_env: TG_BOT_TOKEN
+    chat_id_env: TG_CHAT_ID
+
+watches:
+  - name: My watch
+    activity_url: <activity page URL>
+    session:
+      date: 2026-01-01      # or name_contains: "...", or session_id: <32-hex id>
+    # filters:
+    #   area_name_contains: ["keyword"]
+    #   max_price: 5000
