@@ -55,7 +55,7 @@ def test_throttle_skips_sleep_when_enough_time_passed():
 
 def test_allowlist_rejects_other_urls():
     with pytest.raises(ValueError, match="^URL not allowed$"):
-        make_client().get_json("https://api.ticketplus.com.tw/ticket/api/v1/getSeatsByTicketAreaId", {})
+        make_client().get_json("https://example.com/x", {})
 
 
 @responses.activate

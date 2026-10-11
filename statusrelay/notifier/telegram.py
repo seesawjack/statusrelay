@@ -68,6 +68,7 @@ class TelegramNotifier(Notifier):
             except requests.RequestException as exc:
                 last = type(exc).__name__
                 continue
+            data = None
             try:
                 data = resp.json()
                 ok = resp.status_code == 200 and isinstance(data, dict) and data.get("ok") is True
@@ -75,7 +76,10 @@ class TelegramNotifier(Notifier):
                 ok = False
             if ok:
                 return
-            last = f"HTTP {resp.status_code}: {resp.text[:200]}"
+            last = f"HTTP {resp.status_code}"
+            code = data.get("error_code") if isinstance(data, dict) else None
+            if isinstance(code, int) and not isinstance(code, bool):
+                last += f" error_code {code}"
             if 400 <= resp.status_code < 500 and resp.status_code != 429:
                 break
         raise NotifyError(redact(f"telegram send failed: {last}"))

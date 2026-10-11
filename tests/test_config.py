@@ -73,7 +73,7 @@ def test_filters_min_price():
 @pytest.mark.parametrize(
     "mutate, message",
     [
-        (lambda d: d.update(extra=1), "unknown keys"),
+        (lambda d: d.update(extra=1), "config: 1 unknown key"),
         (lambda d: d.update(notifiers=[]), "notifiers must be a non-empty list"),
         (lambda d: d.update(notifiers=[{"type": "pigeon"}]), "unknown type"),
         (lambda d: d.update(watches=[]), "watches must be a non-empty list"),
@@ -111,3 +111,10 @@ def test_config_hash_changes_with_filters():
 def test_missing_file(tmp_path):
     with pytest.raises(ConfigError, match="cannot read config"):
         load_config(tmp_path / "nope.yaml")
+
+
+def test_unknown_key_names_are_not_echoed():
+    data = raw(**{"Show Day 1": 1, "secret-key": 2})
+    with pytest.raises(ConfigError, match=r"^config: 2 unknown key\(s\)$") as info:
+        parse_config(data)
+    assert "secret-key" not in str(info.value) and "Show Day 1" not in str(info.value)

@@ -155,6 +155,25 @@ def test_telegram_4xx_is_not_retried():
 
 
 @responses.activate
+def test_telegram_error_omits_response_body_text():
+    responses.add(responses.POST, API, status=400,
+                  json={"ok": False, "error_code": 400, "description": "can't parse: quoted-fragment"})
+    with pytest.raises(NotifyError) as info:
+        TelegramNotifier(TOKEN, "42", sleep=lambda s: None).send(Message("t", "b"))
+    text = str(info.value)
+    assert "quoted-fragment" not in text and "description" not in text
+    assert "HTTP 400" in text and "error_code 400" in text
+
+
+@responses.activate
+def test_telegram_error_with_non_json_body_has_status_only():
+    responses.add(responses.POST, API, status=400, body="plain-body-text")
+    with pytest.raises(NotifyError) as info:
+        TelegramNotifier(TOKEN, "42", sleep=lambda s: None).send(Message("t", "b"))
+    assert "plain-body-text" not in str(info.value) and "HTTP 400" in str(info.value)
+
+
+@responses.activate
 def test_telegram_non_dict_json_is_failure():
     responses.add(responses.POST, API, json=[1, 2])
     with pytest.raises(NotifyError):

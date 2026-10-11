@@ -101,7 +101,7 @@ def _check_keys(where: str, mapping: Any, allowed: set[str]) -> None:
         raise ConfigError(f"{where} must be a mapping")
     unknown = set(map(str, mapping)) - allowed
     if unknown:
-        raise ConfigError(f"{where}: unknown keys {sorted(unknown)}")
+        raise ConfigError(f"{where}: {len(unknown)} unknown key(s)")
 
 
 def _opt_int(where: str, value: Any, default: int | None = None) -> int | None:
