@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
-from statusrelay.events import AreaInfo, Event
+from statusrelay.events import UPSTREAM_TZ, AreaInfo, Event
 
 @dataclass(frozen=True)
 class Message:
@@ -66,7 +66,7 @@ class MessageFormatter(ABC):
         if a.purchase_limit:
             text += f" (limit {a.purchase_limit})"
         if a.sale_end:
-            text += f" | sale until {a.sale_end:%m/%d %H:%M}"
+            text += f" | sale until {a.sale_end.astimezone(UPSTREAM_TZ):%m/%d %H:%M}"
         if a.is_new:
             text = "NEW " + text
         return self.escape(text)

@@ -1,15 +1,14 @@
 """One availability check: query live status and decide which areas are buyable."""
 
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime
 
 from statusrelay.client import ApiError
 from statusrelay.config import Filters, Watch
-from statusrelay.events import AreaInfo
+from statusrelay.events import UPSTREAM_TZ, AreaInfo
 from statusrelay.resolver import Resolution, ResolvedArea
 
 BATCH_SIZE = 100
-UPSTREAM_TZ = timezone(timedelta(hours=8))
 type StatusMaps = dict[str, dict[str, dict]]
 
 

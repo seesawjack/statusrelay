@@ -1,5 +1,6 @@
 import pytest
 
+from statusrelay.events import UPSTREAM_TZ
 from statusrelay.message import Message, MessageFormatter, PlainTextFormatter, TelegramFormatter
 from tests.helpers import ORDER_URL, make_area, make_event
 
@@ -29,10 +30,17 @@ def test_area_without_limit():
 
 def test_area_shows_sale_end_when_present():
     from datetime import datetime
-    area = make_area(sale_end=datetime(2026, 10, 31, 21, 5))
+    area = make_area(sale_end=datetime(2026, 10, 31, 21, 5, tzinfo=UPSTREAM_TZ))
     body = PlainTextFormatter().format(make_event(areas=[area])).body
     assert "搖滾A區  NT$5,880 (limit 2) | sale until 10/31 21:05" in body.splitlines()
     assert "sale until" not in PlainTextFormatter().format(make_event()).body
+
+
+def test_sale_end_is_shown_in_upstream_local_time():
+    from datetime import UTC, datetime
+    area = make_area(sale_end=datetime(2026, 10, 31, 15, 0, tzinfo=UTC))
+    body = PlainTextFormatter().format(make_event(areas=[area])).body
+    assert "搖滾A區  NT$5,880 (limit 2) | sale until 10/31 23:00" in body.splitlines()
 
 
 def test_reminder_title():

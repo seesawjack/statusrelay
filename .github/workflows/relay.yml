@@ -33,7 +33,7 @@ jobs:
           rc=0
           git ls-remote --exit-code --heads origin refs/heads/state >/dev/null || rc=$?
           if [ "$rc" -eq 0 ]; then
-            git fetch --depth=1 origin state
+            git fetch --depth=1 origin refs/heads/state
             git show FETCH_HEAD:state.enc > state.enc.tmp && mv state.enc.tmp state.enc || rm -f state.enc.tmp
           elif [ "$rc" -ne 2 ]; then
             echo "cannot determine state branch status" >&2
@@ -61,7 +61,7 @@ jobs:
           rc=0
           git ls-remote --exit-code --heads origin refs/heads/state >/dev/null || rc=$?
           if [ "$rc" -eq 0 ]; then
-            git fetch --depth=1 origin state
+            git fetch --depth=1 origin refs/heads/state
             git worktree add --detach "$work" FETCH_HEAD
           elif [ "$rc" -eq 2 ]; then
             git worktree add --detach "$work"

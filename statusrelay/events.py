@@ -1,9 +1,10 @@
 """Structured, channel-independent notification events."""
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
+UPSTREAM_TZ = timezone(timedelta(hours=8))
 type EventKind = Literal["onsale", "reminder", "soldout", "error", "recovered"]
 
 
