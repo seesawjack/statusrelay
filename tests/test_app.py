@@ -1,5 +1,6 @@
 import json
 import logging
+from urllib.parse import urlparse
 
 from statusrelay.app import RoundResult, run_round
 from statusrelay.client import ApiError, RateLimited
@@ -8,6 +9,8 @@ from statusrelay import app
 from statusrelay.config import parse_config
 from tests.helpers import (ACTIVITY_URL, Clock, FakeClient, RecordingNotifier, make_config, make_status,
                            static_payloads)
+
+PLATFORM_HOST = urlparse(ACTIVITY_URL).hostname.split(".")[0]
 
 
 def setup(tmp_path):
@@ -42,7 +45,7 @@ def test_logs_are_de_identified(tmp_path, caplog):
     text = caplog.text
     assert "watch #1: ok, 2 matched, 1 event(s)" in text
     assert "watch #1: failed (resolve error)" in text
-    for leak in ("Show Day 1", "Sample", "ticketplus", "搖滾", "s000000001"):
+    for leak in ("Show Day 1", "Sample", PLATFORM_HOST, "搖滾", "s000000001"):
         assert leak not in text
 
 
@@ -149,7 +152,7 @@ def test_malformed_upstream_record_is_an_api_error(tmp_path):
     assert saved(tmp_path)["watches"]["Show Day 1"]["consecutive_errors"] == 1
 
 
-FIXTURE_NAMES = ("Show Day 1", "Sample", "ticketplus", "搖滾", "s000000001", "e000000001", "Arena", "HTTP")
+FIXTURE_NAMES = ("Show Day 1", "Sample", PLATFORM_HOST, "搖滾", "s000000001", "e000000001", "Arena", "HTTP")
 
 
 def _lines(caplog):
@@ -161,7 +164,7 @@ def test_failure_paths_log_only_generic_labels(tmp_path, caplog):
     client, store, notifier, clock = setup(tmp_path)
     client.status = RateLimited("HTTP 429 Show Day 1")
     run_round(make_config(), store, client, notifier, clock)
-    client.status = ApiError("HTTP 500 Sample ticketplus")
+    client.status = ApiError(f"HTTP 500 Sample {PLATFORM_HOST}")
     run_round(make_config(), store, client, notifier, clock)
     client.status = make_status()
     notifier.fail = True
