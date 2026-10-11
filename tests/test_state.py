@@ -1,4 +1,5 @@
 import json
+import os
 
 import pytest
 
@@ -60,3 +61,88 @@ def test_malformed_key_rejected(tmp_path):
 def test_generate_key_is_unique_fernet_key():
     a, b = generate_key(), generate_key()
     assert a != b and len(a) == 44
+
+
+def test_encrypted_resave_of_same_data_keeps_file_bytes(tmp_path):
+    path = tmp_path / "state.enc"
+    store = EncryptedFileStore(path, generate_key())
+    store.save(DATA)
+    before = path.read_bytes()
+    store.save(DATA)
+    assert path.read_bytes() == before
+
+
+def test_encrypted_save_of_changed_data_rewrites_file(tmp_path):
+    path = tmp_path / "state.enc"
+    store = EncryptedFileStore(path, generate_key())
+    store.save(DATA)
+    before = path.read_bytes()
+    changed = {**DATA, "watches": {}}
+    store.save(changed)
+    assert path.read_bytes() != before
+    assert store.load().data == changed
+
+
+def test_json_resave_of_same_data_does_not_replace(tmp_path, monkeypatch):
+    path = tmp_path / "state.json"
+    store = JsonFileStore(path)
+    store.save(DATA)
+    replaced = []
+    real_replace = os.replace
+
+    def counting_replace(src, dst):
+        replaced.append(dst)
+        real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", counting_replace)
+    store.save(DATA)
+    assert replaced == []
+    store.save({**DATA, "watches": {}})
+    assert len(replaced) == 1
+
+
+def test_save_overwrites_unreadable_existing_file(tmp_path):
+    path = tmp_path / "state.enc"
+    path.write_text("{not json", encoding="utf-8")
+    EncryptedFileStore(path, generate_key()).save(DATA)
+    assert path.read_bytes() != b"{not json"
+
+
+@pytest.mark.parametrize("make_store", [
+    lambda path: JsonFileStore(path),
+    lambda path: EncryptedFileStore(path, generate_key()),
+], ids=["json", "encrypted"])
+def test_failed_replace_removes_tmp_and_keeps_previous_state(tmp_path, monkeypatch, make_store):
+    path = tmp_path / "state.dat"
+    store = make_store(path)
+    store.save(DATA)
+    before = path.read_bytes()
+
+    def failing_replace(src, dst):
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(os, "replace", failing_replace)
+    with pytest.raises(OSError):
+        store.save({**DATA, "watches": {}})
+    assert list(tmp_path.glob("*.tmp")) == []
+    assert path.read_bytes() == before
+
+
+def test_non_str_key_raises_value_error_without_echoing_key(tmp_path):
+    with pytest.raises(ValueError) as excinfo:
+        EncryptedFileStore(tmp_path / "state.enc", None)
+    assert "None" not in str(excinfo.value)
+
+    secret_like = b"sentinel-key-material"
+    with pytest.raises(ValueError) as excinfo:
+        EncryptedFileStore(tmp_path / "state.enc", secret_like)
+    assert "sentinel" not in str(excinfo.value)
+
+
+def test_plaintext_json_file_loads_as_reset_without_leaking_content(tmp_path):
+    path = tmp_path / "state.json"
+    JsonFileStore(path).save(DATA)
+    loaded = EncryptedFileStore(path, generate_key()).load()
+    assert loaded.data == empty_state()
+    assert loaded.reset_reason is not None
+    assert "搖滾" not in loaded.reset_reason and "watches" not in loaded.reset_reason

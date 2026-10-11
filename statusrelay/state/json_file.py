@@ -29,8 +29,23 @@ class JsonFileStore(StateStore):
         return LoadedState(data)
 
     def save(self, data: dict) -> None:
+        # No sort_keys: area order in the cached resolution is meaningful.
+        text = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+        # Skip unchanged writes: encrypted output differs on every encryption,
+        # which would otherwise make CI commit the state file on every run.
+        if self._holds(text):
+            return
         self.path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.path.with_name(self.path.name + ".tmp")
-        # No sort_keys: area order in the cached resolution is meaningful.
-        tmp.write_bytes(self._encode(json.dumps(data, ensure_ascii=False, indent=2) + "\n"))
-        os.replace(tmp, self.path)
+        try:
+            tmp.write_bytes(self._encode(text))
+            os.replace(tmp, self.path)
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
+
+    def _holds(self, text: str) -> bool:
+        try:
+            return self._decode(self.path.read_bytes()) == text
+        except Exception:
+            return False

@@ -12,6 +12,8 @@ def generate_key() -> str:
 class EncryptedFileStore(JsonFileStore):
     def __init__(self, path, key: str):
         super().__init__(path)
+        if not isinstance(key, str):
+            raise ValueError("state key must be a str")
         try:
             self._fernet = Fernet(key.encode("ascii"))
         except (ValueError, UnicodeEncodeError) as exc:
