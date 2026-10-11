@@ -4,7 +4,10 @@ import logging
 from statusrelay.app import RoundResult, run_round
 from statusrelay.client import ApiError, RateLimited
 from statusrelay.state import JsonFileStore
-from tests.helpers import Clock, FakeClient, RecordingNotifier, make_config, make_status, static_payloads
+from statusrelay import app
+from statusrelay.config import parse_config
+from tests.helpers import (ACTIVITY_URL, Clock, FakeClient, RecordingNotifier, make_config, make_status,
+                           static_payloads)
 
 
 def setup(tmp_path):
@@ -144,3 +147,95 @@ def test_malformed_upstream_record_is_an_api_error(tmp_path):
     assert run_round(make_config(), store, client, notifier, clock).exit_code == 0
     assert kinds(notifier) == []
     assert saved(tmp_path)["watches"]["Show Day 1"]["consecutive_errors"] == 1
+
+
+FIXTURE_NAMES = ("Show Day 1", "Sample", "ticketplus", "搖滾", "s000000001", "e000000001", "Arena", "HTTP")
+
+
+def _lines(caplog):
+    return [r.getMessage() for r in caplog.records if r.name.startswith("statusrelay")]
+
+
+def test_failure_paths_log_only_generic_labels(tmp_path, caplog):
+    caplog.set_level(logging.INFO)
+    client, store, notifier, clock = setup(tmp_path)
+    client.status = RateLimited("HTTP 429 Show Day 1")
+    run_round(make_config(), store, client, notifier, clock)
+    client.status = ApiError("HTTP 500 Sample ticketplus")
+    run_round(make_config(), store, client, notifier, clock)
+    client.status = make_status()
+    notifier.fail = True
+    clock.advance(minutes=5)
+    run_round(make_config(), store, client, notifier, clock)
+    lines = _lines(caplog)
+    assert "watch #1: failed (rate limited)" in lines
+    assert "watch #1: failed (api error)" in lines
+    assert any(line.startswith("notification failed") for line in lines)
+    for line in lines:
+        for leak in FIXTURE_NAMES:
+            assert leak not in line, line
+
+
+def _two_watch_config():
+    second = {"name": "Show Day 2", "activity_url": ACTIVITY_URL, "session": {"date": "2026-10-31"}}
+    return parse_config({
+        "poll": {"reminder_minutes": 10},
+        "notifiers": [{"type": "stdout"}],
+        "watches": [{"name": "Show Day 1", "activity_url": ACTIVITY_URL, "session": {"date": "2026-10-31"}},
+                    second],
+    })
+
+
+def test_unexpected_error_is_isolated_per_watch(tmp_path, caplog, monkeypatch):
+    caplog.set_level(logging.INFO)
+    client, store, notifier, clock = setup(tmp_path)
+    real_check = app.check
+    calls = []
+
+    def flaky(watch, *args, **kwargs):
+        calls.append(watch.name)
+        if len(calls) == 1:
+            raise RuntimeError("secret-name")
+        return real_check(watch, *args, **kwargs)
+
+    monkeypatch.setattr(app, "check", flaky)
+    result = run_round(_two_watch_config(), store, client, notifier, clock)
+    assert result == RoundResult(1, False)
+    assert calls == ["Show Day 1", "Show Day 2"]
+    assert [e.watch_name for e in notifier.events] == ["Show Day 2"]
+    assert "watch #1: failed (internal error: RuntimeError)" in caplog.text
+    assert "secret-name" not in caplog.text
+    assert "Traceback" not in caplog.text
+    assert all(r.exc_info is None for r in caplog.records)
+
+
+def test_base_exception_still_propagates(tmp_path, monkeypatch):
+    client, store, notifier, clock = setup(tmp_path)
+
+    def interrupt(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(app, "check", interrupt)
+    try:
+        run_round(make_config(), store, client, notifier, clock)
+    except KeyboardInterrupt:
+        pass
+    else:
+        raise AssertionError("KeyboardInterrupt was swallowed")
+
+
+def test_naive_stored_times_are_treated_as_corrupt(tmp_path):
+    client, store, notifier, clock = setup(tmp_path)
+    run_round(make_config(), store, client, notifier, clock)
+    entry = saved(tmp_path)["watches"]["Show Day 1"]
+    entry["resolved"]["resolved_at"] = "2026-10-11T11:00:00"
+    entry["last_notified_at"] = "2026-10-11T11:00:00"
+    entry["last_change_at"] = "2026-10-11T11:00:00"
+    entry["last_onsale_at"] = "2026-10-11T11:00:00"
+    (tmp_path / "state.json").write_text(json.dumps({"version": 1, "watches": {"Show Day 1": entry}}),
+                                         encoding="utf-8")
+    clock.advance(minutes=5)
+    assert run_round(make_config(), store, client, notifier, clock).exit_code == 0
+    healed = saved(tmp_path)["watches"]["Show Day 1"]
+    assert healed["resolved"]["resolved_at"].endswith("+08:00")
+    assert healed["last_notified_at"].endswith("+08:00")

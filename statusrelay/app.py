@@ -46,16 +46,22 @@ def _cached_resolution(entry: dict) -> Resolution | None:
     if "resolved" not in entry:
         return None
     try:
-        return Resolution.from_dict(entry["resolved"])
+        resolution = Resolution.from_dict(entry["resolved"])
     except (KeyError, ValueError, TypeError, AttributeError):
         return None
+    # Timezone-naive times cannot be compared with the aware clock: treat as corrupt.
+    return resolution if resolution.resolved_at.tzinfo is not None else None
 
 
 def _load_state(entry: dict) -> WatchState:
     try:
-        return WatchState.from_dict(entry)
+        state = WatchState.from_dict(entry)
     except (ValueError, TypeError, AttributeError):
         return WatchState()
+    times = (state.last_change_at, state.last_notified_at, state.last_onsale_at)
+    if any(t is not None and t.tzinfo is None for t in times):
+        return WatchState()
+    return state
 
 
 def _ensure_resolution(label: str, watch: Watch, entry: dict, client, now: datetime) -> Resolution:
@@ -132,7 +138,11 @@ def run_round(config: Config, store: StateStore, client, notifier: Notifier,
             entry = data["watches"].get(watch.name)
             if not isinstance(entry, dict):
                 entry = data["watches"][watch.name] = {}
-            delivered, limited = _run_watch(index, watch, entry, config, client, notifier, now_fn)
+            try:
+                delivered, limited = _run_watch(index, watch, entry, config, client, notifier, now_fn)
+            except Exception as exc:  # noqa: BLE001 - isolate watches; log the type only (no message/traceback)
+                log.error("watch #%d: failed (internal error: %s)", index, type(exc).__name__)
+                delivered, limited = False, False
             if not delivered:
                 exit_code = 1
             rate_limited = rate_limited or limited
