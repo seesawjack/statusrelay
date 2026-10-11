@@ -17,6 +17,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@v5
         with:
@@ -29,7 +31,7 @@ jobs:
       - name: Restore state
         run: |
           rc=0
-          git ls-remote --exit-code --heads origin state >/dev/null || rc=$?
+          git ls-remote --exit-code --heads origin refs/heads/state >/dev/null || rc=$?
           if [ "$rc" -eq 0 ]; then
             git fetch --depth=1 origin state
             git show FETCH_HEAD:state.enc > state.enc.tmp && mv state.enc.tmp state.enc || rm -f state.enc.tmp
@@ -49,13 +51,15 @@ jobs:
       # always(): persist state even when delivery failed.
       - name: Save state
         if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           [ -f state.enc ] || exit 0
           git config --global user.name "relay-bot"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           work="$(mktemp -d)"
           rc=0
-          git ls-remote --exit-code --heads origin state >/dev/null || rc=$?
+          git ls-remote --exit-code --heads origin refs/heads/state >/dev/null || rc=$?
           if [ "$rc" -eq 0 ]; then
             git fetch --depth=1 origin state
             git worktree add --detach "$work" FETCH_HEAD
@@ -74,4 +78,4 @@ jobs:
             exit 0
           fi
           git -C "$work" commit -m "update"
-          git -C "$work" push origin HEAD:state
+          git -C "$work" push "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:state
