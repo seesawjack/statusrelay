@@ -71,3 +71,19 @@ def test_base_class_is_abstract():
 
 def test_message_extra_defaults_to_empty_dict():
     assert Message("t", "b").extra == {}
+
+
+def test_unknown_kind_raises_value_error():
+    with pytest.raises(ValueError, match="bogus"):
+        PlainTextFormatter().format(make_event(kind="bogus"))
+
+
+def test_subclass_can_add_kind():
+    class PausedFormatter(PlainTextFormatter):
+        TITLES = {**PlainTextFormatter.TITLES, "paused": "Paused"}
+
+        def format_paused(self, e):
+            return Message(self.title(e), "p")
+
+    msg = PausedFormatter().format(make_event(kind="paused"))
+    assert msg.title.startswith("[Paused]")

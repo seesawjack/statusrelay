@@ -3,31 +3,34 @@
 import html
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from typing import Any
 
 from statusrelay.events import AreaInfo, Event
-
-_TITLES = {
-    "onsale": "On sale",
-    "reminder": "Still on sale",
-    "soldout": "Sold out again",
-    "error": "Monitor error",
-    "recovered": "Monitor recovered",
-}
-
 
 @dataclass(frozen=True)
 class Message:
     title: str
     body: str
     url: str | None = None
-    extra: dict = field(default_factory=dict)
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
 class MessageFormatter(ABC):
     """Template-method formatter: override any hook, implement `escape`."""
 
+    TITLES: dict[str, str] = {
+        "onsale": "On sale",
+        "reminder": "Still on sale",
+        "soldout": "Sold out again",
+        "error": "Monitor error",
+        "recovered": "Monitor recovered",
+    }
+
     def format(self, event: Event) -> Message:
-        return getattr(self, f"format_{event.kind}")(event)
+        handler = getattr(self, f"format_{event.kind}", None)
+        if not callable(handler):
+            raise ValueError(f"unsupported event kind: {event.kind!r}")
+        return handler(event)
 
     def format_onsale(self, e: Event) -> Message:
         return Message(self.title(e), self.body(e), e.order_url or None)
@@ -47,7 +50,7 @@ class MessageFormatter(ABC):
         return Message(self.title(e), self.escape(e.detail or "checks are succeeding again"))
 
     def title(self, e: Event) -> str:
-        return self.escape(f"[{_TITLES[e.kind]}] {e.watch_name}")
+        return self.escape(f"[{self.TITLES[e.kind]}] {e.watch_name}")
 
     def session_line(self, e: Event) -> str:
         return self.escape(f"{e.session_name} | {e.session_time} | {e.venue}")
