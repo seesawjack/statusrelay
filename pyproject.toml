@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "statusrelay"
+version = "0.1.0"
+description = "Personal status relay"
+requires-python = ">=3.12"
+dependencies = ["requests>=2.31", "pyyaml>=6.0", "cryptography>=42"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "responses>=0.25"]
+
+[project.scripts]
+statusrelay = "statusrelay.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["statusrelay*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+markers = ["live: hits the real upstream API (opt in with -m live)"]
+addopts = "-m 'not live'"
