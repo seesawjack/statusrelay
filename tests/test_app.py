@@ -192,16 +192,16 @@ def _two_watch_config():
 def test_unexpected_error_is_isolated_per_watch(tmp_path, caplog, monkeypatch):
     caplog.set_level(logging.INFO)
     client, store, notifier, clock = setup(tmp_path)
-    real_check = app.check
+    real_on_success = app.on_success
     calls = []
 
-    def flaky(watch, *args, **kwargs):
-        calls.append(watch.name)
+    def flaky(prev, current, ctx, *args, **kwargs):
+        calls.append(ctx.watch_name)
         if len(calls) == 1:
             raise RuntimeError("secret-name")
-        return real_check(watch, *args, **kwargs)
+        return real_on_success(prev, current, ctx, *args, **kwargs)
 
-    monkeypatch.setattr(app, "check", flaky)
+    monkeypatch.setattr(app, "on_success", flaky)
     result = run_round(_two_watch_config(), store, client, notifier, clock)
     assert result == RoundResult(1, False)
     assert calls == ["Show Day 1", "Show Day 2"]
@@ -210,6 +210,35 @@ def test_unexpected_error_is_isolated_per_watch(tmp_path, caplog, monkeypatch):
     assert "secret-name" not in caplog.text
     assert "Traceback" not in caplog.text
     assert all(r.exc_info is None for r in caplog.records)
+
+
+def test_unexpected_check_error_counts_and_alerts(tmp_path, caplog, monkeypatch):
+    caplog.set_level(logging.INFO)
+    client, store, notifier, clock = setup(tmp_path)
+
+    def broken(*args, **kwargs):
+        raise TypeError("secret-detail")
+
+    monkeypatch.setattr(app, "check", broken)
+    for _ in range(3):
+        assert run_round(make_config(), store, client, notifier, clock).exit_code == 0
+    assert kinds(notifier) == ["error"]
+    assert notifier.events[0].detail.startswith("internal error (TypeError)")
+    assert saved(tmp_path)["watches"]["Show Day 1"]["consecutive_errors"] == 3
+    assert "watch #1: failed (internal error: TypeError)" in caplog.text
+    assert "secret-detail" not in caplog.text
+    assert all(r.exc_info is None for r in caplog.records)
+
+
+def test_rate_limit_during_refresh_is_reported(tmp_path):
+    client, store, notifier, clock = setup(tmp_path)
+    config = make_config()
+    run_round(config, store, client, notifier, clock)
+    clock.advance(hours=25)
+    client.static = dict(static_payloads(), sessions=RateLimited("HTTP 429"))
+    result = run_round(config, store, client, notifier, clock)
+    assert result.rate_limited is True
+    assert len(client.status_calls) == 2  # still checked with cached IDs
 
 
 def test_base_exception_still_propagates(tmp_path, monkeypatch):

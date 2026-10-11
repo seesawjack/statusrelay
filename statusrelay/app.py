@@ -64,22 +64,23 @@ def _load_state(entry: dict) -> WatchState:
     return state
 
 
-def _ensure_resolution(label: str, watch: Watch, entry: dict, client, now: datetime) -> Resolution:
+def _ensure_resolution(label: str, watch: Watch, entry: dict, client, now: datetime) -> tuple[Resolution, bool]:
+    """The resolution to use, and whether a refresh hit the rate limit."""
     cached = _cached_resolution(entry)
     if cached is not None and entry.get("config_hash") != watch.config_hash():
         cached = None
     if cached is not None and now - cached.resolved_at < RESOLUTION_TTL:
-        return cached
+        return cached, False
     try:
         fresh = resolve(watch, client, now)
-    except ApiError:
+    except ApiError as exc:
         if cached is not None:
             log.warning("%s: refresh failed; using cached resolution", label)
-            return cached
+            return cached, isinstance(exc, RateLimited)
         raise
     entry["config_hash"] = watch.config_hash()
     entry["resolved"] = fresh.to_dict()
-    return fresh
+    return fresh, False
 
 
 def _context(watch: Watch, entry: dict) -> EventContext:
@@ -95,7 +96,7 @@ def _run_watch(index: int, watch: Watch, entry: dict, config: Config, client, no
     now = now_fn()
     limited = False
     try:
-        resolution = _ensure_resolution(label, watch, entry, client, now)
+        resolution, limited = _ensure_resolution(label, watch, entry, client, now)
         current = check(watch, resolution, client, now)
     except ResolveError as exc:
         # The message may name sessions: it goes to the notification only.
@@ -108,6 +109,9 @@ def _run_watch(index: int, watch: Watch, entry: dict, config: Config, client, no
     except ApiError as exc:
         log.warning("%s: failed (api error)", label)
         events, new = on_failure(prev, _context(watch, entry), now, f"API error: {exc}")
+    except Exception as exc:  # noqa: BLE001 - e.g. upstream schema drift; type only, never the message
+        log.error("%s: failed (internal error: %s)", label, type(exc).__name__)
+        events, new = on_failure(prev, _context(watch, entry), now, f"internal error ({type(exc).__name__})")
     else:
         names = {aid: area.name for aid, area in resolution.areas.items()}
         ctx = EventContext.from_resolution(watch.name, resolution)
