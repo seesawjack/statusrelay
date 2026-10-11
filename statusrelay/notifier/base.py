@@ -83,10 +83,17 @@ def load_formatter(path: str) -> type[MessageFormatter]:
 
 def build_notifier(specs: Iterable[Mapping], env: Mapping[str, str]) -> MultiNotifier:
     children = []
-    for spec in specs:
+    for i, spec in enumerate(specs):
         options = dict(spec)
+        if "type" not in options:
+            raise NotifyError(f"notifier spec at index {i} has no type")
         kind = options.pop("type")
+        if kind not in NOTIFIERS:
+            raise NotifyError(f"unknown notifier type at index {i}; expected one of {sorted(NOTIFIERS)}")
         formatter_path = options.pop("formatter", None)
         formatter = load_formatter(formatter_path)() if formatter_path else None
-        children.append(NOTIFIERS[kind].from_config(options, env, formatter))
+        try:
+            children.append(NOTIFIERS[kind].from_config(options, env, formatter))
+        except TypeError:
+            raise NotifyError(f"invalid options for notifier at index {i}") from None
     return MultiNotifier(children)

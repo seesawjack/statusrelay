@@ -17,11 +17,19 @@ from statusrelay.notifier import (
     build_notifier,
     load_formatter,
 )
+import statusrelay.redact
+from statusrelay.notifier import register
 from statusrelay.redact import RedactingFilter, add_secret, redact
 from tests.helpers import make_event
 
 TOKEN = "123456:SECRET-token"
 API = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+
+
+@pytest.fixture(autouse=True)
+def _clear_secrets():
+    yield
+    statusrelay.redact._SECRETS.clear()
 
 
 class Recorder(Notifier):
@@ -124,13 +132,107 @@ def test_telegram_final_failure_hides_token():
 
 
 @responses.activate
-def test_telegram_truncates_long_messages():
+def test_telegram_long_message_falls_back_to_plain_text():
     responses.add(responses.POST, API, json={"ok": True})
-    TelegramNotifier(TOKEN, "42", sleep=lambda s: None).send(Message("t", "&amp;" * 2000))
-    text = json.loads(responses.calls[0].request.body)["text"]
+    body = "<b>x</b> &amp; <a href=\"http://e.com\">link</a> " * 400
+    TelegramNotifier(TOKEN, "42", sleep=lambda s: None).send(Message("t", body))
+    payload = json.loads(responses.calls[0].request.body)
+    text = payload["text"]
+    assert "parse_mode" not in payload
     assert len(text) <= 4096
     assert text.endswith("…")
-    assert not text[:-1].endswith("&") and not text[:-1].endswith("&am")
+    assert "<" not in text and "&amp;" not in text
+
+
+@responses.activate
+def test_telegram_4xx_is_not_retried():
+    responses.add(responses.POST, API, status=400, body=f"bad {TOKEN}")
+    with pytest.raises(NotifyError) as info:
+        TelegramNotifier(TOKEN, "42", sleep=lambda s: None).send(Message("t", "b"))
+    assert len(responses.calls) == 1
+    assert TOKEN not in str(info.value)
+
+
+@responses.activate
+def test_telegram_non_dict_json_is_failure():
+    responses.add(responses.POST, API, json=[1, 2])
+    with pytest.raises(NotifyError):
+        TelegramNotifier(TOKEN, "42", sleep=lambda s: None, retries=0).send(Message("t", "b"))
+
+
+def test_redact_replaces_longest_secret_first():
+    add_secret("abc")
+    add_secret("abcdef")
+    assert redact("x abcdef y") == "x *** y"
+
+
+def test_filter_redacts_tracebacks():
+    add_secret("s3cret-token")
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.addFilter(RedactingFilter())
+    logger = logging.getLogger("test_tb_redact")
+    logger.addHandler(handler)
+    logger.propagate = False
+    try:
+        try:
+            raise RuntimeError("boom s3cret-token")
+        except RuntimeError:
+            logger.exception("failed")
+        logger.info("stack", stack_info=True, extra={})
+    finally:
+        logger.removeHandler(handler)
+    assert "s3cret-token" not in stream.getvalue()
+    assert "boom ***" in stream.getvalue()
+
+
+def test_filter_redacts_existing_exc_text_and_stack_info():
+    add_secret("s3cret-token")
+    record = logging.LogRecord("x", logging.INFO, __file__, 1, "m", (), None)
+    record.exc_text = "tb s3cret-token"
+    record.stack_info = "stack s3cret-token"
+    RedactingFilter().filter(record)
+    assert "s3cret-token" not in record.exc_text
+    assert "s3cret-token" not in record.stack_info
+
+
+def test_build_notifier_missing_type():
+    with pytest.raises(NotifyError, match="index 1 has no type"):
+        build_notifier([{"type": "stdout"}, {}], {})
+
+
+def test_build_notifier_unknown_type_does_not_echo_value():
+    with pytest.raises(NotifyError, match="unknown notifier type at index 0") as info:
+        build_notifier([{"type": "hunter2-chan"}], {})
+    assert "hunter2-chan" not in str(info.value)
+    assert "stdout" in str(info.value)
+
+
+def test_build_notifier_invalid_options():
+    with pytest.raises(NotifyError, match="invalid options for notifier at index 0") as info:
+        build_notifier([{"type": "stdout", "bogus": "hunter2"}], {})
+    assert "hunter2" not in str(info.value)
+    assert info.value.__cause__ is None and info.value.__suppress_context__
+
+
+def test_subclass_reuses_inherited_notify():
+    class Shout(PlainTextFormatter):
+        def format(self, event):
+            m = super().format(event)
+            return Message(m.title.upper(), m.body)
+
+    @register("test-sub")
+    class SubNotifier(StdoutNotifier):
+        formatter_cls = Shout
+
+    try:
+        out = io.StringIO()
+        multi = build_notifier([{"type": "test-sub", "stream": out}], {})
+        multi.notify(make_event())
+    finally:
+        NOTIFIERS.pop("test-sub", None)
+    assert isinstance(multi.children[0], SubNotifier)
+    assert out.getvalue().startswith("[ON SALE] SHOW DAY 1\n")
 
 
 def test_redact_and_filter():

@@ -1,5 +1,6 @@
 """Telegram Bot API notifier."""
 
+import html
 import re
 import time
 from collections.abc import Callable, Mapping
@@ -14,12 +15,10 @@ API_URL = "https://api.telegram.org/bot{token}/sendMessage"
 MAX_MESSAGE_LENGTH = 4096
 
 
-def _truncate(text: str) -> str:
-    if len(text) <= MAX_MESSAGE_LENGTH:
-        return text
-    cut = text[: MAX_MESSAGE_LENGTH - 1]
-    cut = re.sub(r"&[^;\s]*$", "", cut)  # never leave half an HTML entity
-    return cut + "…"
+def _plain_truncate(text: str) -> str:
+    """Strip markup so a cut can never produce invalid HTML."""
+    text = html.unescape(re.sub(r"<[^>]*>", "", text))
+    return text[: MAX_MESSAGE_LENGTH - 1] + "…"
 
 
 @register("telegram")
@@ -53,12 +52,13 @@ class TelegramNotifier(Notifier):
         return cls(token, chat_id, formatter=formatter)
 
     def send(self, message: Message) -> None:
-        payload = {
-            "chat_id": self.chat_id,
-            "text": _truncate(f"{message.title}\n{message.body}"),
-            "parse_mode": "HTML",
-            "disable_web_page_preview": False,
-        }
+        text = f"{message.title}\n{message.body}"
+        payload: dict = {"chat_id": self.chat_id, "disable_web_page_preview": False}
+        if len(text) > MAX_MESSAGE_LENGTH:
+            payload["text"] = _plain_truncate(text)
+        else:
+            payload["text"] = text
+            payload["parse_mode"] = "HTML"
         last = "no attempt"
         for attempt in range(self.retries + 1):
             if attempt:
@@ -69,10 +69,13 @@ class TelegramNotifier(Notifier):
                 last = type(exc).__name__
                 continue
             try:
-                ok = resp.status_code == 200 and resp.json().get("ok") is True
+                data = resp.json()
+                ok = resp.status_code == 200 and isinstance(data, dict) and data.get("ok") is True
             except ValueError:
                 ok = False
             if ok:
                 return
             last = f"HTTP {resp.status_code}: {resp.text[:200]}"
+            if 400 <= resp.status_code < 500 and resp.status_code != 429:
+                break
         raise NotifyError(redact(f"telegram send failed: {last}"))
