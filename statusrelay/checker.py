@@ -1,7 +1,7 @@
 """One availability check: query live status and decide which areas are buyable."""
 
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 
 from statusrelay.client import ApiError
 from statusrelay.config import Filters, Watch
@@ -9,18 +9,33 @@ from statusrelay.events import AreaInfo
 from statusrelay.resolver import Resolution, ResolvedArea
 
 BATCH_SIZE = 100
+UPSTREAM_TZ = timezone(timedelta(hours=8))
 type StatusMaps = dict[str, dict[str, dict]]
+
+
+def _is_number(value) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def _is_price(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def parse_time(value) -> datetime | None:
     if value is None or value == "":
         return None
-    if isinstance(value, int | float) and not isinstance(value, bool):
-        return datetime.fromtimestamp(value / 1000, tz=UTC)
+    if _is_number(value):
+        try:
+            return datetime.fromtimestamp(value / 1000, tz=UTC)
+        except (OverflowError, OSError, ValueError):
+            return None
     try:
-        return datetime.fromisoformat(str(value))
+        parsed = datetime.fromisoformat(str(value))
     except ValueError:
         return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UPSTREAM_TZ)
+    return parsed
 
 
 def _chunks(ids: Sequence[str]) -> list[list[str]]:
@@ -66,12 +81,15 @@ def _area_info(area_id: str, area: ResolvedArea, maps: StatusMaps, filters: Filt
         if (product := maps["product"].get(pid))
         and product.get("status") == "onsale"
         and _visible(product, now)
-        and isinstance(product.get("price"), int)
+        and _is_price(product.get("price"))
         and filters.matches_price(product["price"])
     ]
     if not candidates:
         return None
     best = min(candidates, key=lambda p: p["price"])
+    limit = best.get("purchaseLimit")
+    if limit is None:
+        limit = best.get("userLimit")
     return AreaInfo(
         area_id=area_id,
         name=name,
@@ -79,12 +97,14 @@ def _area_info(area_id: str, area: ResolvedArea, maps: StatusMaps, filters: Filt
         status="onsale",
         sale_start=parse_time(record.get("saleStart")),
         sale_end=parse_time(record.get("saleEnd")),
-        purchase_limit=best.get("purchaseLimit") or best.get("userLimit"),
+        purchase_limit=limit,
     )
 
 
 def check(watch: Watch, resolution: Resolution, client, now: datetime) -> dict[str, AreaInfo]:
-    product_ids = [pid for area in resolution.areas.values() for pid in area.product_ids]
+    product_ids = list(dict.fromkeys(
+        pid for area in resolution.areas.values() for pid in area.product_ids
+    ))
     maps = fetch_status(client, [resolution.session_short], list(resolution.areas), product_ids)
     session = maps["session"].get(resolution.session_short)
     if session is None:

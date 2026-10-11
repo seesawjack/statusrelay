@@ -101,3 +101,44 @@ def test_parse_time():
     assert parse_time("garbage") is None
     assert parse_time(1779172560000) == datetime(2026, 5, 19, 6, 36, tzinfo=UTC)
     assert parse_time("2026-05-23T11:00:00+08:00").utcoffset() == timedelta(hours=8)
+
+
+def test_parse_time_naive_is_upstream_local_time():
+    assert parse_time("2026-10-01T00:00:00") == datetime(2026, 9, 30, 16, 0, tzinfo=UTC)
+
+
+def test_naive_expose_start_in_past_does_not_raise():
+    status = make_status(area_overrides={"a000000101": {"exposeStart": "2026-10-01T00:00:00"}})
+    w, r, client = setup(status)
+    assert list(check(w, r, client, NOW)) == ["a000000101", "a000000102"]
+
+
+@pytest.mark.parametrize("value", [10**20, float("nan"), float("inf"), -float("inf")])
+def test_parse_time_out_of_range_is_none(value):
+    assert parse_time(value) is None
+
+
+def test_bool_price_is_ignored():
+    w, r, client = setup(make_status(product_overrides={"p000001022": {"price": True}}))
+    assert check(w, r, client, NOW)["a000000102"].price == 5880
+
+
+def test_zero_purchase_limit_is_kept():
+    w, r, client = setup(make_status(product_overrides={"p000001022": {"purchaseLimit": 0}}))
+    assert check(w, r, client, NOW)["a000000102"].purchase_limit == 0
+
+
+def test_shared_product_id_is_requested_once():
+    areas = {
+        "a000000101": ResolvedArea("搖滾A區", ("p000001011",)),
+        "a000000102": ResolvedArea("搖滾B區", ("p000001011",)),
+    }
+    r = Resolution(NOW, "e" * 32, "e000000001", "f" * 32, "s000000001", "url", "n", "t", "v", areas)
+    client = FakeClient()
+    check(Watch("w", ACTIVITY_URL, SessionSelector(date="x")), r, client, NOW)
+    assert client.status_calls[0]["product_ids"] == ("p000001011",)
+
+
+def test_float_price_is_ignored():
+    w, r, client = setup(make_status(product_overrides={"p000001022": {"price": 2940.0}}))
+    assert check(w, r, client, NOW)["a000000102"].price == 5880
