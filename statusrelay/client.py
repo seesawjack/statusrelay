@@ -58,7 +58,10 @@ class UpstreamClient:
         rng: random.Random | None = None,
         retries: int = 2,
     ):
-        self.session = session or requests.Session()
+        if session is None:
+            session = requests.Session()
+            session.trust_env = False  # ignore ~/.netrc and proxy env vars
+        self.session = session
         self.throttle = throttle or Throttle()
         self.sleep = sleep
         self.rng = rng or random.Random()
@@ -66,14 +69,20 @@ class UpstreamClient:
 
     def get_json(self, url: str, params: dict[str, str]) -> object:
         if url not in ALLOWED_URLS:
-            raise ValueError(f"URL not allowed: {url}")
+            raise ValueError("URL not allowed")
         last = ApiError("no attempt")
         for attempt in range(self.retries + 1):
             if attempt:
                 self.sleep(2**attempt + self.rng.uniform(0, 1))
             self.throttle.wait()
             try:
-                resp = self.session.get(url, params=params, headers={"User-Agent": USER_AGENT}, timeout=(5, 15))
+                resp = self.session.get(
+                    url,
+                    params=params,
+                    headers={"User-Agent": USER_AGENT},
+                    timeout=(5, 15),
+                    allow_redirects=False,
+                )
             except requests.RequestException as exc:
                 last = ApiError(f"network error: {type(exc).__name__}")
                 continue
@@ -93,8 +102,8 @@ class UpstreamClient:
         raise last
 
     def get_static(self, event_long: str, name: str) -> dict:
-        if not LONG_ID_RE.match(event_long):
-            raise ValueError(f"bad event id: {event_long!r}")
+        if not LONG_ID_RE.fullmatch(event_long):
+            raise ValueError("bad event id")
         if name not in STATIC_FILES:
             raise ValueError(f"unknown static file: {name!r}")
         data = self.get_json(f"{BASE}/getS3", {"path": f"event/{event_long}/{name}.json"})
@@ -110,15 +119,15 @@ class UpstreamClient:
         area_ids: Iterable[str] = (),
         product_ids: Iterable[str] = (),
     ) -> dict:
-        params = {}
-        for key, ids in (
-            ("eventId", event_ids),
-            ("sessionId", session_ids),
-            ("ticketAreaId", area_ids),
-            ("productId", product_ids),
-        ):
-            if ids := list(ids):
-                params[key] = ",".join(ids)
+        pairs = {
+            "eventId": list(event_ids),
+            "sessionId": list(session_ids),
+            "ticketAreaId": list(area_ids),
+            "productId": list(product_ids),
+        }
+        if not any(pairs.values()):
+            raise ValueError("no ids given")
+        params = {key: ",".join(ids) for key, ids in pairs.items() if ids}
         data = self.get_json(f"{BASE}/get", params)
         if not isinstance(data, dict) or data.get("errCode") != "00" or not isinstance(data.get("result"), dict):
             code = data.get("errCode") if isinstance(data, dict) else None

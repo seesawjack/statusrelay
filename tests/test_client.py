@@ -54,7 +54,7 @@ def test_throttle_skips_sleep_when_enough_time_passed():
 
 
 def test_allowlist_rejects_other_urls():
-    with pytest.raises(ValueError, match="not allowed"):
+    with pytest.raises(ValueError, match="^URL not allowed$"):
         make_client().get_json("https://api.ticketplus.com.tw/ticket/api/v1/getSeatsByTicketAreaId", {})
 
 
@@ -68,6 +68,7 @@ def test_get_static_sends_path_and_honest_user_agent_without_cookies():
     responses.add(responses.GET, GETS3, json={"products": []})
     client = make_client()
     assert client.get_static(EVENT_LONG, "sessions") == {"sessions": []}
+    assert len(client.session.cookies) == 0
     client.get_static(EVENT_LONG, "products")
     first, second = responses.calls[0].request, responses.calls[1].request
     assert first.headers["User-Agent"] == "statusrelay/0.1.0 (+personal status relay)"
@@ -77,10 +78,38 @@ def test_get_static_sends_path_and_honest_user_agent_without_cookies():
 
 def test_get_static_validates_inputs():
     client = make_client()
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="^bad event id$"):
         client.get_static("../../etc", "sessions")
     with pytest.raises(ValueError):
         client.get_static(EVENT_LONG, "seats")
+
+
+@responses.activate
+def test_get_static_rejects_trailing_newline_before_any_request():
+    client = make_client()
+    with pytest.raises(ValueError, match="^bad event id$"):
+        client.get_static(EVENT_LONG + "\n", "sessions")
+    assert len(responses.calls) == 0
+
+
+@responses.activate
+def test_get_status_requires_at_least_one_id_before_any_request():
+    client = make_client()
+    with pytest.raises(ValueError, match="^no ids given$"):
+        client.get_status()
+    assert len(responses.calls) == 0
+
+
+@responses.activate
+def test_redirects_are_not_followed():
+    responses.add(responses.GET, GET, status=302, headers={"Location": "https://other.example/evil"})
+    with pytest.raises(ApiError, match="HTTP 302"):
+        make_client().get_status(session_ids=["s1"])
+    assert len(responses.calls) == 1
+
+
+def test_default_session_ignores_ambient_credentials_and_proxies():
+    assert UpstreamClient().session.trust_env is False
 
 
 @responses.activate

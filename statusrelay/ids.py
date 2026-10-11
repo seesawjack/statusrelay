@@ -20,7 +20,7 @@ class IdDecodeError(ValueError):
 
 
 def decode_long_id(long_id: str) -> str:
-    if not LONG_ID_RE.match(long_id):
+    if not LONG_ID_RE.fullmatch(long_id):
         raise IdDecodeError(f"not a 32-hex long id: {long_id!r}")
     decryptor = Cipher(algorithms.AES(_KEY), modes.CBC(_IV)).decryptor()
     padded = decryptor.update(bytes.fromhex(long_id)) + decryptor.finalize()

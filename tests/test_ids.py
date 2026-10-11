@@ -39,3 +39,8 @@ def test_rejects_malformed(bad):
 def test_rejects_bad_padding():
     with pytest.raises(IdDecodeError):
         decode_long_id("0" * 32)
+
+
+def test_rejects_trailing_newline():
+    with pytest.raises(IdDecodeError):
+        decode_long_id(EVENT_LONG + "\n")
