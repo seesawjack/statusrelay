@@ -27,6 +27,14 @@ def test_area_without_limit():
     assert "搖滾A區  NT$5,880" in body.splitlines()
 
 
+def test_area_shows_sale_end_when_present():
+    from datetime import datetime
+    area = make_area(sale_end=datetime(2026, 10, 31, 21, 5))
+    body = PlainTextFormatter().format(make_event(areas=[area])).body
+    assert "搖滾A區  NT$5,880 (limit 2) | sale until 10/31 21:05" in body.splitlines()
+    assert "sale until" not in PlainTextFormatter().format(make_event()).body
+
+
 def test_reminder_title():
     assert PlainTextFormatter().format(make_event("reminder")).title == "[Still on sale] Show Day 1"
 

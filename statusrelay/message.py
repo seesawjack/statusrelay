@@ -65,6 +65,8 @@ class MessageFormatter(ABC):
         text = f"{a.name}  NT${a.price:,}"
         if a.purchase_limit:
             text += f" (limit {a.purchase_limit})"
+        if a.sale_end:
+            text += f" | sale until {a.sale_end:%m/%d %H:%M}"
         if a.is_new:
             text = "NEW " + text
         return self.escape(text)
