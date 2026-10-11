@@ -4,7 +4,9 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from statusrelay.config import parse_config
 from statusrelay.events import AreaInfo, Event
+from statusrelay.notifier import Notifier, NotifyError
 
 TZ = timezone(timedelta(hours=8))
 NOW = datetime(2026, 10, 11, 12, 0, tzinfo=TZ)
@@ -118,3 +120,39 @@ class FakeClient:
             "ticketArea": [r for r in self.status.get("ticketArea", []) if r["id"] in call["area_ids"]],
             "product": [r for r in self.status.get("product", []) if r["id"] in call["product_ids"]],
         }
+
+
+class Clock:
+    def __init__(self, t=NOW):
+        self.t = t
+
+    def __call__(self):
+        return self.t
+
+    def advance(self, **kwargs):
+        self.t += timedelta(**kwargs)
+
+
+class RecordingNotifier(Notifier):
+    def __init__(self):
+        super().__init__()
+        self.events = []
+        self.fail = False
+
+    def notify(self, event):
+        if self.fail:
+            raise NotifyError("boom")
+        self.events.append(event)
+
+    def send(self, message):
+        raise AssertionError("RecordingNotifier records events, not messages")
+
+
+def make_config(reminder_minutes=10, **watch_overrides):
+    watch = {"name": "Show Day 1", "activity_url": ACTIVITY_URL, "session": {"date": "2026-10-31"}}
+    watch.update(watch_overrides)
+    return parse_config({
+        "poll": {"reminder_minutes": reminder_minutes},
+        "notifiers": [{"type": "stdout"}],
+        "watches": [watch],
+    })
