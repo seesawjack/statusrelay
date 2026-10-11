@@ -94,11 +94,12 @@ def test_build_notifier_missing_env():
 
 
 def test_load_formatter_errors():
-    with pytest.raises(NotifyError):
+    with pytest.raises(NotifyError, match="^formatter must be a dotted path$"):
         load_formatter("NoDots")
-    with pytest.raises(NotifyError):
-        load_formatter("statusrelay.message.DoesNotExist")
-    with pytest.raises(NotifyError):
+    with pytest.raises(NotifyError, match="^cannot load formatter$") as info:
+        load_formatter("pkg.SENTINEL_FMT.Missing")
+    assert "SENTINEL_FMT" not in str(info.value) and info.value.__cause__ is None
+    with pytest.raises(NotifyError, match="^formatter is not a MessageFormatter subclass$"):
         load_formatter("statusrelay.events.Event")
 
 

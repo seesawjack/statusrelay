@@ -166,3 +166,36 @@ def test_bad_notifier_spec_is_config_error_without_echo(tmp_path):
     code, out, err, _, _ = run(tmp_path, ["check"], config=config)
     assert code == 2 and "config error" in err
     assert "SECRET-VALUE-123" not in err + out
+
+
+def test_malformed_state_key_not_echoed(tmp_path):
+    code, _, err, _, _ = run(tmp_path, ["check", "--require-encryption"],
+                             env={"STATUSRELAY_STATE_KEY": "not-a-key-SENTINEL123"})
+    assert code == 2 and "config error" in err
+    assert "SENTINEL123" not in err
+
+
+def test_missing_formatter_path_not_echoed(tmp_path):
+    config = CONFIG.replace("type: stdout", 'type: stdout\n    formatter: "pkg.SENTINEL_FMT.Missing"')
+    code, _, err, _, _ = run(tmp_path, ["check"], config=config)
+    assert code == 2 and "config error" in err
+    assert "SENTINEL_FMT" not in err
+
+
+def test_config_error_output_is_redacted(tmp_path):
+    from statusrelay.redact import add_secret
+    add_secret("LEAKY-TOKEN-777")
+    config = CONFIG.replace("type: stdout", "type: LEAKY-TOKEN-777")
+    code, _, err, _, _ = run(tmp_path, ["check"], config=config)
+    assert code == 2 and "LEAKY-TOKEN-777" not in err
+
+
+def test_next_delay_above_max_interval_never_shortens():
+    rng = random.Random(0)
+    assert all(next_delay(1200, rng, backoff=2) >= 1198 for _ in range(100))
+
+
+def test_dry_run_help_mentions_state(capsys):
+    with pytest.raises(SystemExit):
+        main(["check", "--help"])
+    assert "state is still updated" in " ".join(capsys.readouterr().out.split())

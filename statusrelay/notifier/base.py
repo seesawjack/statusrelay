@@ -71,13 +71,13 @@ class MultiNotifier(Notifier):
 def load_formatter(path: str) -> type[MessageFormatter]:
     module_name, _, attr = path.rpartition(".")
     if not module_name:
-        raise NotifyError(f"formatter must be a dotted path: {path!r}")
+        raise NotifyError("formatter must be a dotted path")
     try:
         cls = getattr(importlib.import_module(module_name), attr)
-    except (ImportError, AttributeError) as exc:
-        raise NotifyError(f"cannot load formatter {path!r}: {exc}") from exc
+    except (ImportError, AttributeError):
+        raise NotifyError("cannot load formatter") from None
     if not (isinstance(cls, type) and issubclass(cls, MessageFormatter)):
-        raise NotifyError(f"{path!r} is not a MessageFormatter subclass")
+        raise NotifyError("formatter is not a MessageFormatter subclass")
     return cls
 
 

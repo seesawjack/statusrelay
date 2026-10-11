@@ -17,7 +17,7 @@ from statusrelay.client import ApiError, UpstreamClient
 from statusrelay.config import MIN_INTERVAL_SECONDS, ConfigError, load_config_from
 from statusrelay.ids import IdDecodeError, session_short_id
 from statusrelay.notifier import MultiNotifier, NotifyError, StdoutNotifier, build_notifier
-from statusrelay.redact import RedactingFilter, add_secret
+from statusrelay.redact import RedactingFilter, add_secret, redact
 from statusrelay.resolver import ResolveError, parse_activity_url, records, session_time
 from statusrelay.state import STATE_KEY_ENV, EncryptedFileStore, JsonFileStore, StateStore, generate_key
 
@@ -29,7 +29,7 @@ MAX_BACKOFF = 64
 
 
 def next_delay(interval: int, rng: random.Random, backoff: int = 1) -> float:
-    base = min(interval * backoff, MAX_INTERVAL) if backoff > 1 else interval
+    base = max(interval, min(interval * backoff, MAX_INTERVAL))
     offset = rng.uniform(1, 2) * rng.choice((-1, 1))
     return max(float(MIN_INTERVAL_SECONDS), base + offset)
 
@@ -66,7 +66,7 @@ def _parser() -> argparse.ArgumentParser:
         p = sub.add_parser(name, help=help_text)
         p.add_argument("--config", default="config.yaml", help="used when STATUSRELAY_CONFIG is unset")
         p.add_argument("--state", default="state.json")
-        p.add_argument("--dry-run", action="store_true", help="print notifications instead of sending")
+        p.add_argument("--dry-run", action="store_true", help="print notifications instead of sending (state is still updated)")
         p.add_argument("--require-encryption", action="store_true",
                        help=f"fail unless {STATE_KEY_ENV} is set")
         if name == "check":
@@ -131,9 +131,13 @@ def main(
         config = load_config_from(args.config, env)
         notifier = (MultiNotifier([StdoutNotifier(stream=stdout)]) if args.dry_run
                     else build_notifier(config.notifiers, env))
+    except (ConfigError, NotifyError) as exc:
+        print(redact(f"config error: {exc}"), file=stderr)
+        return 2
+    try:
         store = _store(args, env)
-    except (ConfigError, NotifyError, ValueError) as exc:
-        print(f"config error: {exc}", file=stderr)
+    except (ConfigError, ValueError) as exc:  # ValueError: malformed state key
+        print(redact(f"config error: {exc}"), file=stderr)
         return 2
 
     if args.command == "check":
