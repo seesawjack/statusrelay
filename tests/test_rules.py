@@ -70,12 +70,24 @@ def test_onsale_to_empty_is_soldout():
 
 
 def test_debounce_suppresses_identical_flicker():
-    prev = WatchState(last_onsale_signature="A", last_onsale_at=NOW - timedelta(minutes=1))
-    events, state = succeed(prev, A)
-    assert events == [] and state.available == ("A",)
-    prev = WatchState(last_onsale_signature="A", last_onsale_at=NOW - timedelta(minutes=3))
-    events, _ = succeed(prev, A)
+    prev = WatchState(available=("A",), last_onsale_signature="A,B", last_onsale_at=NOW - timedelta(minutes=1),
+                      last_notified_at=NOW - timedelta(minutes=1))
+    events, state = succeed(prev, A, B)
+    assert events == [] and state.available == ("A", "B")
+    prev = WatchState(available=("A",), last_onsale_signature="A,B", last_onsale_at=NOW - timedelta(minutes=3),
+                      last_notified_at=NOW - timedelta(minutes=3))
+    events, _ = succeed(prev, A, B)
     assert [e.kind for e in events] == ["onsale"]
+
+
+def test_onsale_after_soldout_is_not_debounced():
+    t0 = NOW
+    _, state = succeed(WatchState(), A, now=t0)
+    events, state = succeed(state, now=t0 + timedelta(seconds=30))
+    assert [e.kind for e in events] == ["soldout"]
+    events, _ = succeed(state, A, now=t0 + timedelta(seconds=60))
+    assert [e.kind for e in events] == ["onsale"]
+    assert events[0].detected_at == t0 + timedelta(seconds=60)
 
 
 def test_failures_alert_once_at_threshold():

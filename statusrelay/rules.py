@@ -98,7 +98,7 @@ def on_success(
 
     if added := cur_set - prev_set:
         signature = _signature(cur_set)
-        if (signature == prev.last_onsale_signature and prev.last_onsale_at is not None
+        if (prev_set and signature == prev.last_onsale_signature and prev.last_onsale_at is not None
                 and now - prev.last_onsale_at < DEBOUNCE):
             return events, new
         areas = [replace(a, is_new=bool(prev_set) and a.area_id in added) for a in current.values()]
