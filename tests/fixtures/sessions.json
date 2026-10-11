@@ -1,0 +1,5 @@
+{"sessions": [
+  {"eventId": "8c47f9efe47df17d6381bcdb71309bfc", "name": "Sample Live Tour（Day 1）", "hidden": false, "date": "2026-10-31 ~ 2026-10-31", "time": "19:00 ~ 19:00", "location": "Sample Arena", "ticketArea": true, "sortedIndex": 1, "sessionId": "26ab2893376c2821a1e1efbfdb28c4f4"},
+  {"eventId": "8c47f9efe47df17d6381bcdb71309bfc", "name": "Sample Live Tour（Day 2）", "hidden": false, "date": "2026-11-01 ~ 2026-11-01", "time": "19:00 ~ 19:00", "location": "Sample Arena", "ticketArea": true, "sortedIndex": 2, "sessionId": "a0cd115cc2af7ef784fb6ee2414841c5"},
+  {"eventId": "8c47f9efe47df17d6381bcdb71309bfc", "name": "Hidden rehearsal", "hidden": true, "date": "2026-10-31 ~ 2026-10-31", "time": "12:00 ~ 12:00", "location": "Sample Arena", "ticketArea": true, "sortedIndex": 3, "sessionId": "ffffffffffffffffffffffffffffffff"}
+]}

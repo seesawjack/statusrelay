@@ -1,0 +1,5 @@
+{"ticketAreas": [
+  {"ticketAreaId": "a000000102", "sessionId": "26ab2893376c2821a1e1efbfdb28c4f4", "name": "搖滾B區", "price": 5880, "sortedIndex": 2, "color": "#D72E20", "exposeStart": 1779172560000, "exposeEnd": 1793548800000, "hidden": false},
+  {"ticketAreaId": "a000000101", "sessionId": "26ab2893376c2821a1e1efbfdb28c4f4", "name": "搖滾A區", "price": 5880, "sortedIndex": 1, "color": "#D72E20", "exposeStart": 1779172560000, "exposeEnd": 1793548800000, "hidden": false},
+  {"ticketAreaId": "a000000201", "sessionId": "a0cd115cc2af7ef784fb6ee2414841c5", "name": "看台2樓", "price": 2880, "sortedIndex": 1, "color": "#2E7DD7", "exposeStart": 1779172560000, "exposeEnd": 1793548800000, "hidden": false}
+]}
