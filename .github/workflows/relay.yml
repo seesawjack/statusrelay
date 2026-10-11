@@ -1,0 +1,65 @@
+name: relay
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: relay
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install .
+
+      - name: Restore state
+        run: |
+          if git fetch --depth=1 origin state 2>/dev/null; then
+            git show FETCH_HEAD:state.enc > state.enc.tmp && mv state.enc.tmp state.enc || rm -f state.enc.tmp
+          fi
+
+      - name: Run
+        env:
+          STATUSRELAY_CONFIG: ${{ secrets.STATUSRELAY_CONFIG }}
+          STATUSRELAY_STATE_KEY: ${{ secrets.STATUSRELAY_STATE_KEY }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: statusrelay check --state state.enc --require-encryption
+
+      - name: Save state
+        if: always()
+        run: |
+          [ -f state.enc ] || exit 0
+          git config --global user.name "relay-bot"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          work="$(mktemp -d)"
+          if git fetch --depth=1 origin state 2>/dev/null; then
+            git worktree add --detach "$work" FETCH_HEAD
+          else
+            git worktree add --detach "$work"
+            git -C "$work" checkout --orphan state
+            git -C "$work" rm -rf --quiet .
+          fi
+          cp state.enc "$work/state.enc"
+          git -C "$work" add state.enc
+          if git -C "$work" diff --cached --quiet; then
+            echo "state unchanged"
+            exit 0
+          fi
+          git -C "$work" commit -m "update"
+          git -C "$work" push origin HEAD:state
