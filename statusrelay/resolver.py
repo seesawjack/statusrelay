@@ -9,11 +9,14 @@ from statusrelay.config import SessionSelector, Watch
 from statusrelay.ids import IdDecodeError, event_short_id, session_short_id
 
 ORDER_BASE = "https://ticketplus.com.tw/order"
-_ACTIVITY_RE = re.compile(r"https://ticketplus\.com\.tw/activity/([0-9a-f]{32})/?")
+_ACTIVITY_RE = re.compile(r"https://ticketplus\.com\.tw/activity/([0-9a-f]{32})/?(?:[?#].*)?")
 
 
 class ResolveError(RuntimeError):
-    """Config or upstream data does not identify exactly one usable session."""
+    """Config or upstream data does not identify exactly one usable session.
+
+    Its message may contain session names/IDs: send it only to the private notification channel or local CLI output, never to logs.
+    """
 
 
 @dataclass(frozen=True)
@@ -63,11 +66,15 @@ def parse_activity_url(url: str) -> str:
     raise ResolveError("not a supported activity URL")
 
 
-def records(payload: dict, key: str) -> list[dict]:
+def records(payload: dict, key: str, *, required: tuple[str, ...] = ()) -> list[dict]:
     value = payload.get(key)
     if not isinstance(value, list):
         raise ApiError(f"{key} payload has no {key!r} list")
-    return [r for r in value if isinstance(r, dict)]
+    rows = [r for r in value if isinstance(r, dict)]
+    # Do not include record contents in the message: they may hold session names.
+    if any(k not in r for r in rows for k in required):
+        raise ApiError(f"malformed {key} payload")
+    return rows
 
 
 def _start(value: str) -> str:
@@ -99,7 +106,10 @@ def select_session(sessions: list[dict], selector: SessionSelector) -> dict:
 
 def resolve(watch: Watch, client, now: datetime) -> Resolution:
     event_long = parse_activity_url(watch.activity_url)
-    sessions = [s for s in records(client.get_static(event_long, "sessions"), "sessions") if not s.get("hidden")]
+    sessions = [
+        s for s in records(client.get_static(event_long, "sessions"), "sessions", required=("sessionId",))
+        if not s.get("hidden")
+    ]
     session = select_session(sessions, watch.session)
     session_long = session["sessionId"]
     try:
@@ -109,12 +119,16 @@ def resolve(watch: Watch, client, now: datetime) -> Resolution:
         raise ResolveError(f"{exc}; set event_short/session_short manually in config") from exc
 
     area_rows = sorted(
-        (a for a in records(client.get_static(event_long, "ticketAreas"), "ticketAreas")
+        (a for a in records(client.get_static(event_long, "ticketAreas"), "ticketAreas",
+                            required=("ticketAreaId",))
          if a.get("sessionId") == session_long),
         key=lambda a: a.get("sortedIndex", 0),
     )
-    products = [p for p in records(client.get_static(event_long, "products"), "products")
-                if p.get("sessionId") == session_long]
+    products = [
+        p for p in records(client.get_static(event_long, "products"), "products",
+                           required=("productId", "ticketAreaId"))
+        if p.get("sessionId") == session_long
+    ]
     areas = {
         a["ticketAreaId"]: ResolvedArea(
             a.get("name", a["ticketAreaId"]),

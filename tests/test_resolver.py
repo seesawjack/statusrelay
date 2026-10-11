@@ -3,7 +3,15 @@ import pytest
 from statusrelay.client import ApiError
 from statusrelay.config import SessionSelector, Watch
 from statusrelay.resolver import Resolution, ResolveError, parse_activity_url, records, resolve
-from tests.helpers import ACTIVITY_URL, EVENT_LONG, NOW, SESSION_DAY1, SESSION_DAY2, FakeClient
+from tests.helpers import (
+    ACTIVITY_URL,
+    EVENT_LONG,
+    NOW,
+    SESSION_DAY1,
+    SESSION_DAY2,
+    FakeClient,
+    static_payloads,
+)
 
 
 def watch(**selector):
@@ -16,6 +24,16 @@ def test_parse_activity_url():
     assert parse_activity_url(ACTIVITY_URL + "/") == EVENT_LONG
     with pytest.raises(ResolveError, match="not a supported activity URL"):
         parse_activity_url("https://example.com/activity/" + EVENT_LONG)
+
+
+@pytest.mark.parametrize("suffix", ["?utm_source=x", "/?utm_source=x", "#section", "/#section"])
+def test_parse_activity_url_accepts_query_and_fragment(suffix):
+    assert parse_activity_url(ACTIVITY_URL + suffix) == EVENT_LONG
+
+
+def test_parse_activity_url_rejects_extra_path_segment():
+    with pytest.raises(ResolveError, match="not a supported activity URL"):
+        parse_activity_url(ACTIVITY_URL + "/extra")
 
 
 def test_resolve_by_date():
@@ -73,6 +91,31 @@ def test_records_validates_payload():
     assert records({"sessions": [{"a": 1}]}, "sessions") == [{"a": 1}]
     with pytest.raises(ApiError):
         records({"oops": []}, "sessions")
+
+
+def test_records_requires_keys():
+    payload = {"sessions": [{"sessionId": "x"}, {"name": "secret session name"}]}
+    with pytest.raises(ApiError) as info:
+        records(payload, "sessions", required=("sessionId",))
+    assert str(info.value) == "malformed sessions payload"
+
+
+@pytest.mark.parametrize(
+    ("key", "required"),
+    [
+        ("sessions", ("sessionId",)),
+        ("ticketAreas", ("ticketAreaId",)),
+        ("products", ("productId", "ticketAreaId")),
+    ],
+)
+def test_resolve_rejects_malformed_upstream_record(key, required):
+    static = static_payloads()
+    victim = static[key][key][0]
+    for field in required:
+        victim.pop(field, None)
+    with pytest.raises(ApiError) as info:
+        resolve(watch(date="2026-10-31"), FakeClient(static=static), NOW)
+    assert str(info.value) == f"malformed {key} payload"
 
 
 def test_round_trip():
